@@ -10,7 +10,7 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 .app{display:grid;grid-template-columns:320px 1fr;min-height:100vh}
-aside{background:var(--side);border-right:1px solid var(--bd);padding:24px 16px;overflow:auto;max-height:100vh;position:sticky;top:0}
+aside{background:var(--side);border-right:1px solid var(--bd);padding:24px 16px;overflow:auto;max-height:100vh;position:sticky;top:0;display:flex;flex-direction:column}
 main{padding:40px 48px 64px;max-width:1280px}
 h1{font-size:34px;line-height:1.2;margin:0 0 4px;font-weight:700}
 .sub{color:var(--mut);margin:0 0 28px}
@@ -44,6 +44,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 .pri{background:var(--acc);color:#fff;font-weight:600}
 .pri:hover{background:var(--acc);filter:brightness(.92)}
 .pri:disabled{opacity:.4;cursor:not-allowed;filter:none}
+.sync{margin-top:auto;padding-top:16px;border-top:1px solid var(--bd);font-size:12px;color:var(--mut);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sync .err{color:var(--err)}
+.sync button{font-size:12px;border:1px solid var(--bd);padding:3px 8px;flex:none}
 .cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:28px 32px}
 .m h3{font-size:15px;margin:0 0 6px;padding:0 4px}
 .g{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
@@ -68,25 +71,30 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 </head>
 <body>
 <div class="app">
-<aside>
-  <div id="formBox"></div>
-  <h2>Сотрудники</h2>
-  <div id="list"></div>
-  <button class="add" id="addBtn"><b>+</b> Добавить отпуск</button>
-</aside>
-<main>
-  <h1>🌴 Отпуска 2027</h1>
-  <p class="sub">Казахстан · пятидневная рабочая неделя · 247 рабочих дней</p>
-  <div class="leg">
-    <span><i style="background:var(--hol)"></i>праздник</span>
-    <span><i style="background:var(--tr)"></i>перенесённый выходной</span>
-    <span><i style="background:var(--accbg)"></i>выбранные даты</span>
-  </div>
-  <p class="hint" id="hint">Нажмите «+ Добавить отпуск», введите имя и выберите даты в календаре.</p>
-  <div class="cal" id="cal"></div>
-</main>
+  <aside>
+    <div id="formBox"></div>
+    <h2>Сотрудники</h2>
+    <div id="list"></div>
+    <button class="add" id="addBtn"><b>+</b> Добавить отпуск</button>
+    <div class="sync">
+      <span id="syncMsg">Загрузка…</span>
+      <button id="refreshBtn">Обновить</button>
+    </div>
+  </aside>
+  <main>
+    <h1>🌴 Отпуска 2027</h1>
+    <p class="sub">Казахстан · пятидневная рабочая неделя · 247 рабочих дней</p>
+    <div class="leg">
+      <span><i style="background:var(--hol)"></i>праздник</span>
+      <span><i style="background:var(--tr)"></i>перенесённый выходной</span>
+      <span><i style="background:var(--accbg)"></i>выбранные даты</span>
+    </div>
+    <p class="hint" id="hint">Нажмите «+ Добавить отпуск», введите имя и выберите даты в календаре.</p>
+    <div class="cal" id="cal"></div>
+  </main>
 </div>
 <script>
+const API="https://script.google.com/macros/s/AKfycbzp6qXYqwk5JhbWctgmUjKprJPRWqqoQIKZ2ZWrP4nmPLM6gRVsgRkKF4-aoGsNKkwM/exec";
 const Y=2027, DAY=864e5;
 const HOL=["01-01","01-02","01-07","03-08","03-15","03-21","03-22","03-23","05-01","05-07","05-09","05-16","07-06","10-25","12-16"];
 const TR=["01-04","03-24","05-03","05-10"];
@@ -95,15 +103,64 @@ const COLORS=["#e03e3e","#d9730d","#dfab01","#0f7b6c","#0b6e99","#6940a5","#ad1a
 const LABELS=[["Отпуск 1","ровно 14 дней"],["Отпуск 2","вместе с третьим — 10 дней"],["Отпуск 3","вместе со вторым — 10 дней"]];
 const $=id=>document.getElementById(id);
 const dn=(m,d)=>Date.UTC(Y,m,d)/DAY;
-const YS=dn(0,1), YE=dn(11,31);
+const YE=dn(11,31);
 const fmt=n=>new Date(n*DAY).toLocaleDateString("ru",{day:"numeric",month:"short",timeZone:"UTC"}).replace(".","");
 const len=r=>r?r.e-r.s+1:0;
 const rfmt=r=>r?(r.s===r.e?fmt(r.s):fmt(r.s)+" – "+fmt(r.e)):"";
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let people=[];
+let people=[], busy=false;
 try{people=JSON.parse(localStorage.getItem("vac2027")||"[]")}catch(e){}
-const save=()=>{try{localStorage.setItem("vac2027",JSON.stringify(people))}catch(e){}};
+const saveLocal=()=>{try{localStorage.setItem("vac2027",JSON.stringify(people))}catch(e){}};
+
+function setSync(text,isErr=false){
+  const el=$("syncMsg");
+  el.textContent=text;
+  el.className=isErr?"err":"";
+}
+
+async function loadRemote(){
+  setSync("Загрузка…");
+  try{
+    const res=await fetch(API+"?t="+Date.now(),{cache:"no-store"});
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json.error||"Ошибка ответа");
+    people=Array.isArray(json.people)?json.people:[];
+    saveLocal();
+    renderAll();
+    setSync("Синхронизировано");
+  }catch(e){
+    setSync("Ошибка загрузки: "+e.message,true);
+  }
+}
+
+async function postRemote(payload){
+  if(busy)return false;
+  busy=true;
+  renderForm();
+  setSync("Сохранение…");
+  try{
+    const res=await fetch(API,{
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify(payload)
+    });
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json.error||"Ошибка сохранения");
+    people=Array.isArray(json.people)?json.people:people;
+    saveLocal();
+    setSync("Сохранено");
+    return true;
+  }catch(e){
+    setSync("Ошибка сохранения: "+e.message,true);
+    return false;
+  }finally{
+    busy=false;
+    renderForm();
+  }
+}
 
 let draft=null, active=0, pend=null;
 
@@ -115,7 +172,7 @@ function problems(){
   else if(len(r[1])+len(r[2])!==10) p.push("Отпуска 2 и 3 дают "+(len(r[1])+len(r[2]))+" из 10 дней");
   const rs=r.filter(Boolean);
   for(let i=0;i<rs.length;i++)for(let j=i+1;j<rs.length;j++)
-    if(rs[i].s<=rs[j].e&&rs[j].s<=rs[i].e){p.push("Отпуска пересекаются");i=j=9;}
+    if(rs[i].s<=rs[j].e&&rs[j].s<=rs[i].e){p.push("Отпуска пересекаются");i=9;}
   return p;
 }
 
@@ -134,17 +191,24 @@ function renderForm(){
     ${[0,1,2].map(i=>`<div class="slot ${active===i?"on":""}" data-i="${i}">
       <div>${LABELS[i][0]}<small>${LABELS[i][1]}</small></div>
       <div class="v">${r[i]?rfmt(r[i])+"<small>"+len(r[i])+" дн.</small>":"<small>не выбрано</small>"}</div></div>`).join("")}
-    <div class="msgs">${pr.length?pr.map(x=>`<div class="e">${x}</div>`).join(""):'<div class="ok">Всё сходится: 14 + '+sum+' дней</div>'}</div>
-    <div class="btns"><button id="cancel">Отмена</button><button class="pri" id="saveBtn" ${pr.length?"disabled":""}>Сохранить</button></div>
+    <div class="msgs">${pr.length?pr.map(x=>`<div class="e">${x}</div>`).join(""):`<div class="ok">Всё сходится: 14 + `+sum+` дней</div>`}</div>
+    <div class="btns"><button id="cancel" ${busy?"disabled":""}>Отмена</button><button class="pri" id="saveBtn" ${pr.length||busy?"disabled":""}>${busy?"Сохранение…":"Сохранить"}</button></div>
   </div>`;
   const nm=$("nm");
-  nm.oninput=()=>{draft.name=nm.value;const pr=problems();$("saveBtn").disabled=!!pr.length;box.querySelector(".msgs").innerHTML=pr.length?pr.map(x=>`<div class="e">${x}</div>`).join(""):'<div class="ok">Всё сходится: 14 + '+(len(draft.r[1])+len(draft.r[2]))+' дней</div>'};
+  nm.oninput=()=>{draft.name=nm.value;const pr=problems();$("saveBtn").disabled=!!pr.length||busy;box.querySelector(".msgs").innerHTML=pr.length?pr.map(x=>`<div class="e">${x}</div>`).join(""):`<div class="ok">Всё сходится: 14 + `+(len(draft.r[1])+len(draft.r[2]))+` дней</div>`};
   box.querySelectorAll(".slot").forEach(s=>s.onclick=()=>{active=+s.dataset.i;pend=null;renderAll()});
   $("cancel").onclick=()=>{draft=null;pend=null;renderAll()};
-  $("saveBtn").onclick=()=>{
-    if(draft.id){const p=people.find(x=>x.id===draft.id);p.name=draft.name.trim();p.r=draft.r}
-    else people.push({id:Date.now(),name:draft.name.trim(),color:COLORS[people.length%COLORS.length],r:draft.r});
-    save();draft=null;pend=null;renderAll();
+  $("saveBtn").onclick=async()=>{
+    const existing=draft.id?people.find(x=>String(x.id)===String(draft.id)):null;
+    const person={
+      id:existing?String(existing.id):String(Date.now())+"-"+Math.random().toString(36).slice(2,6),
+      name:draft.name.trim(),
+      color:existing?existing.color:COLORS[people.length%COLORS.length],
+      r:draft.r.map(x=>({s:x.s,e:x.e}))
+    };
+    const labels=person.r.map(r=>`${rfmt(r)} (${len(r)} дн.)`);
+    const ok=await postRemote({action:"upsert",person,labels});
+    if(ok){draft=null;pend=null;renderAll()}
   };
 }
 
@@ -155,18 +219,21 @@ function renderList(){
     <button data-e="${p.id}" title="Изменить">✎</button><button data-d="${p.id}" title="Удалить">✕</button></div>
     ${p.r.map(r=>`<div class="rg">${rfmt(r)} · ${len(r)} дн.</div>`).join("")}</div>`).join("");
   l.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{
-    const p=people.find(x=>x.id===+b.dataset.e);
+    const p=people.find(x=>String(x.id)===b.dataset.e);
+    if(!p)return;
     draft={id:p.id,name:p.name,r:p.r.map(x=>({...x}))};active=0;pend=null;renderAll();
   });
-  l.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{
-    const p=people.find(x=>x.id===+b.dataset.d);
-    if(confirm("Удалить «"+p.name+"»?")){people=people.filter(x=>x!==p);save();renderAll()}
+  l.querySelectorAll("[data-d]").forEach(b=>b.onclick=async()=>{
+    const p=people.find(x=>String(x.id)===b.dataset.d);
+    if(!p||!confirm("Удалить «"+p.name+"»?"))return;
+    const ok=await postRemote({action:"delete",id:String(p.id)});
+    if(ok)renderAll();
   });
 }
 
 function renderCal(){
   const cover={};
-  people.forEach(p=>{if(draft&&draft.id===p.id)return;p.r.forEach(r=>{for(let n=r.s;n<=r.e;n++)(cover[n]=cover[n]||[]).push(p.color)})});
+  people.forEach(p=>{if(draft&&String(draft.id)===String(p.id))return;p.r.forEach(r=>{for(let n=r.s;n<=r.e;n++)(cover[n]=cover[n]||[]).push(p.color)})});
   let h="";
   for(let m=0;m<12;m++){
     const first=(new Date(Y,m,1).getDay()+6)%7, days=new Date(Y,m+1,0).getDate();
@@ -190,7 +257,7 @@ function renderCal(){
 
 function next(){const i=draft.r.findIndex(x=>!x);active=i>=0?i:active}
 function pick(n){
-  if(!draft){return}
+  if(!draft)return;
   if(active===0){
     if(n+13>YE){alert("14 дней не помещаются в 2027 год — выберите более раннюю дату.");return}
     draft.r[0]={s:n,e:n+13};pend=null;next();
@@ -201,7 +268,10 @@ function pick(n){
 
 function renderAll(){renderForm();renderList();renderCal()}
 $("addBtn").onclick=()=>{draft={name:"",r:[null,null,null]};active=0;pend=null;renderAll();$("nm").focus()};
+$("refreshBtn").onclick=loadRemote;
+
 renderAll();
+loadRemote();
 </script>
 </body>
 </html>
